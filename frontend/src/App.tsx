@@ -10,6 +10,15 @@ import { toast } from 'react-hot-toast';
 interface Hero {
   name: string;
   imageUrl: string;
+  stats?: {
+    winRate: number;
+    wins: number;
+    losses: number;
+    kda: number;
+    kills: number;
+    deaths: number;
+    assists: number;
+  };
 }
 
 interface Player {
@@ -21,10 +30,7 @@ interface TrackerResults {
   status: string;
   message: string;
   playerName: string;
-  heroes: Array<{
-    name: string;
-    imageUrl: string;
-  }>;
+  heroes: Hero[];
 }
 
 function App() {
@@ -179,7 +185,7 @@ function App() {
 
         {trackerResults && (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mt-8">
               {Array.isArray(trackerResults) ? (
                 trackerResults.map((result, index) => (
                   result.status === 'success' && (
@@ -242,7 +248,7 @@ function App() {
         {results.length > 0 && !trackerResults && (
           <div className="mt-16">
             <h2 className="text-2xl font-bold text-red-400 mb-6 text-center">Previous Searches</h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
               {results.map((player, index) => (
                 <div key={`previous-${index}`} className="transform scale-90">
                   <PlayerCard player={player} />
