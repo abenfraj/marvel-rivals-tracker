@@ -19,15 +19,18 @@ app.use(cors());
 
 // Use the new Tesseract.js API that accepts the language as an argument.
 async function processImage(file) {
-  // This call uses the new syntax: pass 'eng' directly.
   const worker = await createWorker('eng');
-
-  // Recognize the text from the file buffer.
   const { data: { text } } = await worker.recognize(file.buffer);
-  console.log('Extracted text from image:', text);
   await worker.terminate();
   
-  return text;
+  // Split text by newlines and filter out empty lines
+  const playerNames = text
+    .split('\n')
+    .map(name => name.trim())
+    .filter(name => name.length > 0);
+  
+  console.log('Extracted player names:', playerNames);
+  return playerNames;
 }
 
 // POST endpoint to receive the screenshot image.
@@ -42,20 +45,41 @@ app.post('/upload', upload.single('image'), async (req, res) => {
   
   try {
     console.log('Starting OCR processing...');
-    const extractedText = await processImage(req.file);
-    console.log('OCR completed. Extracted text:', extractedText);
+    const playerNames = await processImage(req.file);
+    console.log('OCR completed. Player names:', playerNames);
     
-    console.log('Starting tracker search...');
-    const trackerResults = await searchTracker(extractedText);
-    console.log('Tracker search completed. Results:', trackerResults);
+    // Process each player name in parallel with separate browser instances
+    const trackerPromises = playerNames.map(async (playerName) => {
+      const { browser: newBrowser, page } = await connect({
+        headless: false,
+        args: [],
+        customConfig: {},
+        turnstile: true,
+        connectOption: {},
+        disableXvfb: false,
+        ignoreAllFlags: false
+      });
+      
+      try {
+        const result = await searchTrackerWithBrowser(playerName, page);
+        await newBrowser.close({ forceKill: true });
+        return result;
+      } catch (error) {
+        await newBrowser.close({ forceKill: true });
+        throw error;
+      }
+    });
+    
+    const trackerResults = await Promise.all(trackerPromises);
+    console.log('All tracker searches completed');
     
     const response = { 
       success: true, 
-      extractedText,
+      extractedText: playerNames.join('\n'),
       trackerResults 
     };
-    console.log('Sending response:', response);
     
+    console.log('Sending response:', response);
     res.json(response);
   } catch (error) {
     console.error('Error in upload endpoint:', error);
@@ -63,25 +87,12 @@ app.post('/upload', upload.single('image'), async (req, res) => {
   }
 });
 
-// Update the searchTracker function to better handle the extracted text
-async function searchTracker(playerName) {
-  let browser;
+// New function that takes an existing page instance
+async function searchTrackerWithBrowser(playerName, page) {
   try {
     const url = `https://tracker.gg/marvel-rivals/profile/ign/${playerName}/overview`;
     console.log('Starting search for player:', playerName);
     console.log('URL:', url);
-    
-    const { browser: newBrowser, page } = await connect({
-      headless: false,
-      args: [],
-      customConfig: {},
-      turnstile: true,
-      connectOption: {},
-      disableXvfb: false,
-      ignoreAllFlags: false
-    });
-    
-    browser = newBrowser;
 
     console.log('Navigating to page...');
     await page.goto(url);
@@ -94,7 +105,7 @@ async function searchTracker(playerName) {
       if (cookieButton) {
         console.log('Cookie popup found, clicking accept...');
         await cookieButton.click();
-        await page.waitForTimeout(1000); // Wait for popup to disappear
+        await page.waitForTimeout(1000);
       }
     } catch (error) {
       console.log('No cookie popup found or already accepted');
@@ -133,14 +144,12 @@ async function searchTracker(playerName) {
 
     // Get the heroes data
     const heroesData = await page.evaluate(() => {
-      // Get all v3-card sections
       const sections = document.querySelectorAll('section.v3-card');
       if (!sections || sections.length < 2) {
         console.log('Required sections not found');
         return null;
       }
 
-      // Target the second section specifically
       const heroesSection = sections[1];
       if (!heroesSection) {
         console.log('Second section not found');
@@ -155,7 +164,6 @@ async function searchTracker(playerName) {
         const name = heroElement.querySelector('img')?.alt;
         const imageUrl = heroElement.querySelector('img')?.src;
         
-        // Log the raw data for debugging
         console.log('Processing hero:', name);
         console.log('Hero element HTML:', heroElement.outerHTML);
 
@@ -170,19 +178,6 @@ async function searchTracker(playerName) {
 
     console.log('Extracted heroes data:', heroesData);
 
-    try {
-      await page.screenshot({ path: 'debug-final.png' });
-      console.log('Screenshot saved');
-    } catch (error) {
-      console.error('Error taking screenshot:', error);
-    }
-
-    // Force close all pages and browser
-    const pages = await browser.pages();
-    await Promise.all(pages.map(page => page.close()));
-    await browser.close({ forceKill: true });
-    console.log('Browser forcefully closed');
-
     return {
       status: 'success',
       message: 'Page loaded successfully',
@@ -192,16 +187,6 @@ async function searchTracker(playerName) {
 
   } catch (error) {
     console.error('Error searching tracker:', error);
-    if (browser) {
-      try {
-        const pages = await browser.pages();
-        await Promise.all(pages.map(page => page.close()));
-        await browser.close({ forceKill: true });
-        console.log('Browser forcefully closed after error');
-      } catch (closeError) {
-        console.error('Error closing browser:', closeError);
-      }
-    }
     return {
       status: 'error',
       message: error.message,
@@ -224,5 +209,5 @@ if (require.main === module) {
 module.exports = {
   app,
   processImage,
-  searchTracker
+  searchTrackerWithBrowser
 };

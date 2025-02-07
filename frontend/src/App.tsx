@@ -72,16 +72,15 @@ function App() {
 
       setImageText(`Detected Text from Image:\n${data.extractedText}`);
       setExtractedText(data.extractedText);
-      setTrackerResults(data.trackerResults);
       
-      if (data.trackerResults) {
-        const playerResults = Object.entries(data.trackerResults).map(([playerName, characters]) => {
-          return {
-            playerName,
-            characters: Array.isArray(characters) ? characters : []
-          };
-        });
-        return playerResults;
+      // Handle multiple tracker results
+      if (data.trackerResults && Array.isArray(data.trackerResults)) {
+        setTrackerResults(data.trackerResults);
+        return data.trackerResults;
+      } else if (data.trackerResults) {
+        // If single result, wrap in array
+        setTrackerResults([data.trackerResults]);
+        return [data.trackerResults];
       }
       
       return [];
@@ -116,9 +115,21 @@ function App() {
   };
 
   const handleReset = () => {
-    setResults([]);
+    // Store current trackerResults in results before clearing
+    if (trackerResults) {
+      const newResults = Array.isArray(trackerResults) 
+        ? trackerResults.filter(result => result.status === 'success')
+        : trackerResults.status === 'success' ? [trackerResults] : [];
+      
+      setResults(prevResults => [...newResults, ...prevResults]);
+    }
+    
+    // Clear current search states
+    setTrackerResults(null);
     setImageText('');
     setInputMethod('upload');
+    setSelectedFile(null);
+    setExtractedText('');
   };
 
   return (
@@ -134,7 +145,13 @@ function App() {
             Track your Marvel Rivals stats
           </p>
 
-          {!results.length && (
+          {isProcessing && (
+            <div className="flex justify-center items-center my-8">
+              <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-red-500"></div>
+            </div>
+          )}
+
+          {!trackerResults && (
             <div className="flex justify-center space-x-4 mb-8">
               <button
                 onClick={() => setInputMethod('upload')}
@@ -160,7 +177,32 @@ function App() {
           )}
         </div>
 
-        {!results.length && inputMethod === 'upload' && (
+        {trackerResults && (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-8">
+              {Array.isArray(trackerResults) ? (
+                trackerResults.map((result, index) => (
+                  result.status === 'success' && (
+                    <PlayerCard key={`tracker-${index}`} player={result} />
+                  )
+                ))
+              ) : (
+                trackerResults.status === 'success' && <PlayerCard player={trackerResults} />
+              )}
+            </div>
+            
+            <div className="mt-8 text-center">
+              <button
+                onClick={handleReset}
+                className="bg-red-600/20 text-red-400 px-6 py-2 rounded-full hover:bg-red-600/30 transition-all"
+              >
+                Start Over
+              </button>
+            </div>
+          </>
+        )}
+
+        {!trackerResults && inputMethod === 'upload' && (
           <>
             <UploadZone 
               onFileUpload={handleFileUpload}
@@ -193,13 +235,20 @@ function App() {
           </>
         )}
 
-        {!results.length && inputMethod === 'manual' && (
+        {!trackerResults && inputMethod === 'manual' && (
           <ManualInput onSubmit={handleManualSubmit} />
         )}
 
-        {isProcessing && (
-          <div className="flex justify-center items-center my-12">
-            <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-red-500"></div>
+        {results.length > 0 && !trackerResults && (
+          <div className="mt-16">
+            <h2 className="text-2xl font-bold text-red-400 mb-6 text-center">Previous Searches</h2>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {results.map((player, index) => (
+                <div key={`previous-${index}`} className="transform scale-90">
+                  <PlayerCard player={player} />
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -210,31 +259,6 @@ function App() {
               {imageText}
             </pre>
           </div>
-        )}
-
-        {trackerResults && trackerResults.status === 'success' && (
-          <div className="mt-8">
-            <PlayerCard player={trackerResults} />
-          </div>
-        )}
-
-        {results.length > 0 && (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-8">
-              {results.map((player, index) => (
-                <PlayerCard key={index} player={player} />
-              ))}
-            </div>
-            
-            <div className="mt-8 text-center">
-              <button
-                onClick={handleReset}
-                className="bg-red-600/20 text-red-400 px-6 py-2 rounded-full hover:bg-red-600/30 transition-all"
-              >
-                Start Over
-              </button>
-            </div>
-          </>
         )}
       </main>
 
