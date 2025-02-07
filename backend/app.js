@@ -142,74 +142,127 @@ async function searchTrackerWithBrowser(playerName, page) {
       throw new Error('Could not load profile page after maximum attempts');
     }
 
-    // Get the heroes data with stats
-    const heroesData = await page.evaluate(() => {
+    // Get both heroes and roles data in a single evaluate call
+    const data = await page.evaluate(() => {
       const sections = document.querySelectorAll('section.v3-card');
-      if (!sections || sections.length < 2) return null;
+      if (!sections || sections.length < 2) return { heroes: [], roles: [] };
 
-      const heroesSection = sections[1];
-      if (!heroesSection) return null;
+      // Extract roles data from first section
+      const rolesSection = sections[0];
+      const roles = [];
 
-      const heroElements = heroesSection.querySelectorAll('.flex.gap-4.items-center');
-      
-      return Array.from(heroElements).map(heroElement => {
-        const name = heroElement.querySelector('img')?.alt;
-        const imageUrl = heroElement.querySelector('img')?.src;
+      if (rolesSection) {
+        const roleElements = rolesSection.querySelectorAll('.flex.gap-4.items-center');
         
-        const stats = {
-          winRate: 0,
-          wins: 0,
-          losses: 0,
-          kda: 0,
-          kills: 0,
-          deaths: 0,
-          assists: 0
-        };
+        roleElements.forEach(roleElement => {
+          const name = roleElement.querySelector('.text-12.text-secondary')?.textContent?.trim();
+          const imageUrl = roleElement.querySelector('img')?.src;
+          const percentage = roleElement.querySelector('.role-chart')?.style.getPropertyValue('--percentage')?.replace('%', '') || '0';
+          
+          const stats = {
+            winRate: 0,
+            wins: 0,
+            kda: 0,
+            kills: 0,
+            deaths: 0,
+            assists: 0
+          };
 
-        // Get Win Rate data
-        const wrSection = heroElement.querySelector('.stat-hor');
-        if (wrSection) {
-          // Get win rate percentage
-          const wrText = wrSection.querySelector('.stat-value')?.textContent?.trim();
-          stats.winRate = parseFloat(wrText) || 0;
+          // Get Win Rate data
+          const wrSection = roleElement.querySelectorAll('.stat-hor')[0];
+          if (wrSection) {
+            const wrText = wrSection.querySelector('.stat-value')?.textContent?.trim();
+            stats.winRate = parseFloat(wrText) || 0;
+            stats.wins = parseInt(wrSection.querySelector('.stat-list .value')?.textContent) || 0;
+          }
 
-          // Get W/L counts
-          const [winsText, lossesText] = Array.from(wrSection.querySelectorAll('.stat-list .value'))
-            .map(el => el.textContent.trim());
-          stats.wins = parseInt(winsText) || 0;
-          stats.losses = parseInt(lossesText) || 0;
-        }
+          // Get KDA data
+          const kdaSection = roleElement.querySelectorAll('.stat-hor')[1];
+          if (kdaSection) {
+            const kdaText = kdaSection.querySelector('.stat-value')?.textContent?.trim();
+            stats.kda = parseFloat(kdaText) || 0;
 
-        // Get KDA data
-        const kdaSection = heroElement.querySelectorAll('.stat-hor')[1];
-        if (kdaSection) {
-          // Get KDA ratio
-          const kdaText = kdaSection.querySelector('.stat-value')?.textContent?.trim();
-          stats.kda = parseFloat(kdaText) || 0;
+            const [kills, deaths, assists] = Array.from(kdaSection.querySelectorAll('.stat-list .value'))
+              .map(el => parseFloat(el.textContent.trim()) || 0);
+            stats.kills = kills;
+            stats.deaths = deaths;
+            stats.assists = assists;
+          }
 
-          // Get K/D/A values
-          const [kills, deaths, assists] = Array.from(kdaSection.querySelectorAll('.stat-list .value'))
-            .map(el => parseFloat(el.textContent.trim()) || 0);
-          stats.kills = kills;
-          stats.deaths = deaths;
-          stats.assists = assists;
-        }
+          roles.push({
+            name,
+            imageUrl,
+            percentage: parseFloat(percentage),
+            stats
+          });
+        });
+      }
 
-        return {
-          name,
-          imageUrl,
-          stats
-        };
-      });
+      // Extract heroes data from second section
+      const heroesSection = sections[1];
+      const heroes = [];
+
+      if (heroesSection) {
+        const heroElements = heroesSection.querySelectorAll('.flex.gap-4.items-center');
+        
+        heroElements.forEach(heroElement => {
+          const name = heroElement.querySelector('img')?.alt;
+          const imageUrl = heroElement.querySelector('img')?.src;
+          
+          const stats = {
+            winRate: 0,
+            wins: 0,
+            losses: 0,
+            kda: 0,
+            kills: 0,
+            deaths: 0,
+            assists: 0
+          };
+
+          // Get Win Rate data
+          const wrSection = heroElement.querySelector('.stat-hor');
+          if (wrSection) {
+            const wrText = wrSection.querySelector('.stat-value')?.textContent?.trim();
+            stats.winRate = parseFloat(wrText) || 0;
+
+            const [winsText, lossesText] = Array.from(wrSection.querySelectorAll('.stat-list .value'))
+              .map(el => el.textContent.trim());
+            stats.wins = parseInt(winsText) || 0;
+            stats.losses = parseInt(lossesText) || 0;
+          }
+
+          // Get KDA data
+          const kdaSection = heroElement.querySelectorAll('.stat-hor')[1];
+          if (kdaSection) {
+            const kdaText = kdaSection.querySelector('.stat-value')?.textContent?.trim();
+            stats.kda = parseFloat(kdaText) || 0;
+
+            const [kills, deaths, assists] = Array.from(kdaSection.querySelectorAll('.stat-list .value'))
+              .map(el => parseFloat(el.textContent.trim()) || 0);
+            stats.kills = kills;
+            stats.deaths = deaths;
+            stats.assists = assists;
+          }
+
+          heroes.push({
+            name,
+            imageUrl,
+            stats
+          });
+        });
+      }
+
+      return { heroes, roles };
     });
 
-    console.log('Extracted heroes data:', heroesData);
+    console.log('Extracted data:', data);
 
     return {
       status: 'success',
       message: 'Page loaded successfully',
       playerName: playerName,
-      heroes: heroesData
+      heroes: data.heroes,
+      roles: data.roles
     };
 
   } catch (error) {
