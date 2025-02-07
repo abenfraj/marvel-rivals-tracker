@@ -5,7 +5,7 @@ import Footer from './components/Footer';
 import UploadZone from './components/UploadZone';
 import PlayerCard from './components/PlayerCard';
 import ManualInput from './components/ManualInput';
-import { toast } from 'react-hot-toast';
+import { toast, Toaster } from 'react-hot-toast';
 
 interface Hero {
   name: string;
@@ -33,6 +33,66 @@ interface TrackerResults {
   heroes: Hero[];
 }
 
+interface BanRecommendation {
+  hero: Hero;
+  reason: string;
+  priority: number;
+}
+
+const generateBanRecommendations = (results: TrackerResults[]): BanRecommendation[] => {
+  const recommendations: BanRecommendation[] = [];
+  const seenHeroes = new Set<string>();
+
+  results.forEach(result => {
+    if (result.status !== 'success' || !result.heroes) return;
+
+    result.heroes.forEach(hero => {
+      if (seenHeroes.has(hero.name)) return; // Skip if we've already seen this hero
+      
+      if (hero.stats) {
+        let priority = 0;
+        let reason = '';
+
+        // Calculate priority based on different factors
+        if (hero.stats.winRate > 55 && hero.stats.wins + hero.stats.losses >= 10) {
+          priority += hero.stats.winRate * (hero.stats.wins + hero.stats.losses) / 10;
+          reason = `${result.playerName} has ${hero.stats.winRate.toFixed(1)}% win rate with ${hero.stats.wins + hero.stats.losses} games`;
+        }
+
+        if (hero.stats.kda > 3.0 && hero.stats.wins + hero.stats.losses >= 10) {
+          priority += hero.stats.kda * 10;
+          reason = reason || `${result.playerName} has ${hero.stats.kda.toFixed(1)} KDA with ${hero.name}`;
+        }
+
+        if (hero.stats.wins + hero.stats.losses >= 20) {
+          priority += 90;
+          reason = reason || `${result.playerName} mainly plays ${hero.name} (${hero.stats.wins + hero.stats.losses} games)`;
+        }
+
+        if (priority > 0) {
+          recommendations.push({
+            hero,
+            reason,
+            priority
+          });
+          seenHeroes.add(hero.name);
+        }
+      }
+    });
+  });
+
+  // Sort by priority and get top 5
+  return recommendations
+    .sort((a, b) => b.priority - a.priority)
+    .slice(0, 5);
+};
+
+const generateBanSummaryText = (recommendations: BanRecommendation[]): string => {
+  return recommendations
+    .map((ban, index) => `${index + 1}. Ban ${ban.hero.name} - ${ban.reason}`)
+    .join('\n');
+};
+
 function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [results, setResults] = useState<any[]>([]);
@@ -41,6 +101,7 @@ function App() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [extractedText, setExtractedText] = useState<string>('');
   const [trackerResults, setTrackerResults] = useState<TrackerResults | null>(null);
+  const [banRecommendations, setBanRecommendations] = useState<BanRecommendation[]>([]);
 
   // First, define your heroes
   const [heroes] = useState<Hero[]>([
@@ -106,6 +167,10 @@ function App() {
       console.log('Calling processImage directly');
       const newResults = await processImage(file);
       setResults(newResults);
+      if (newResults && newResults.length > 0) {
+        const recommendations = generateBanRecommendations(newResults);
+        setBanRecommendations(recommendations);
+      }
     } catch (error) {
       console.error('Error handling file upload:', error);
       setImageText('Error processing image. Please try again.');
@@ -138,6 +203,23 @@ function App() {
     setExtractedText('');
   };
 
+  const handleCopyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success('Ban recommendations copied to clipboard!', {
+        duration: 2000,
+        position: 'top-center',
+        style: {
+          background: '#1f2937',
+          color: '#fff',
+          border: '1px solid rgba(239, 68, 68, 0.2)',
+        }
+      });
+    } catch (err) {
+      toast.error('Failed to copy text');
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-gray-900 via-red-900 to-gray-900">
       <Navbar />
@@ -150,6 +232,58 @@ function App() {
           <p className="text-gray-300 text-xl mb-8">
             Track your Marvel Rivals stats
           </p>
+
+          {/* Add Ban Recommendations at the top */}
+          {banRecommendations.length > 0 && (
+            <div className="mt-4 mb-8">
+              <h2 className="text-2xl font-bold text-red-400 mb-4">Recommended Bans</h2>
+              <div className="flex justify-center items-center gap-8 max-w-7xl mx-auto">
+                {/* Hero images grid - changed from items-center to items-start */}
+                <div className="flex justify-center items-start gap-4 mt-8">
+                  {banRecommendations.map((ban, index) => (
+                    <div key={ban.hero.name} className="relative group">
+                      <div className="absolute -top-4 -right-4 w-8 h-8 bg-red-600 rounded-full flex items-center justify-center text-white font-bold z-10">
+                        #{index + 1}
+                      </div>
+                      <div className="relative w-24 h-24 rounded-lg overflow-hidden border-2 border-red-500">
+                        <img 
+                          src={ban.hero.imageUrl} 
+                          alt={ban.hero.name} 
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="absolute bottom-0 left-0 right-0 bg-black/80 p-2 text-xs text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                        {ban.reason}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Text summary box */}
+                <div className="w-[500px] bg-black/40 rounded-lg p-4 border border-red-500/20">
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="text-red-400 font-semibold">Ban Summary</h3>
+                    <button
+                      onClick={() => handleCopyText(generateBanSummaryText(banRecommendations))}
+                      className="text-sm px-4 py-2 bg-red-600/20 text-red-400 rounded-full hover:bg-red-600/30 transition-all flex items-center gap-2"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                      </svg>
+                      Copy
+                    </button>
+                  </div>
+                  <div className="text-gray-300 text-sm space-y-2">
+                    {banRecommendations.map((ban, index) => (
+                      <p key={index}>
+                        {index + 1}. Ban {ban.hero.name} - {ban.reason}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {isProcessing && (
             <div className="flex justify-center items-center my-8">
@@ -269,6 +403,7 @@ function App() {
       </main>
 
       <Footer />
+      <Toaster />
     </div>
   );
 }
